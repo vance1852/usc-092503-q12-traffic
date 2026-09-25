@@ -6,7 +6,7 @@
 
 - `src/traffic_dispatch/`：事故风险指数、快处中心、道路走廊、应急资源、调度申请和响应情景；
 - `src/evidence_review/`：采集设备、证据规范、结构化记录导入、一致性分析、复核租约和采信决定；
-- `src/penalty_ops/`：事故案件、违法记录、风险告警、处置工单、处罚流转和审计；
+- `src/penalty_ops/`：事故案件、违法记录、风险告警、处置工单、处罚流转和审计；申诉复核子系统覆盖处罚决定登记、申诉登记、材料补正、受理审查、复核决定、撤回、执行中止与台账调整；
 - `fixtures/`：离线验收使用的证据规范与结构化事故记录；
 - `tests/`：领域规则、事务边界、权限、HTTP API 和 CLI 验收测试。
 
@@ -44,6 +44,20 @@ PYTHONPATH=src python3 -m penalty_ops.acceptance
 PYTHONPATH=src python3 -m traffic_dispatch.api --database traffic.sqlite3 --host 127.0.0.1 --port 8080
 PYTHONPATH=src python3 -m evidence_review.api --database evidence.sqlite3 --host 127.0.0.1 --port 8081
 PYTHONPATH=src python3 -m penalty_ops.api --database penalties.sqlite3 --host 127.0.0.1 --port 8082
+PYTHONPATH=src python3 -m penalty_ops.appeal_api --database appeals.sqlite3 --host 127.0.0.1 --port 8083
 ```
 
 三个服务均提供 `GET /health`，其余接口使用 JSON。SQLite 文件保存业务状态、幂等结果和审计记录，进程重启后可继续查询。
+
+## 申诉复核
+
+申诉复核服务（`penalty_ops.appeal_api`）围绕处罚决定展开完整流转：
+
+- 执法人员登记处罚决定后，系统建立罚款台账与催缴、滞纳金等执行动作；
+- 只有决定当事人或持有效授权的代理人可以发起申诉；同一决定、同一法定事由的重复提交自动合并到在办案件；
+- 承办人可要求材料补正，补正期间受理期限重新起算，逾期未补正的申诉不予受理并记录逾期原因；
+- 受理后按规则中止该决定的执行动作并挂起台账；复核结论为驳回（维持）、变更或撤销时，在同一事务内恢复或调整台账与执行动作；
+- 当事人可在决定作出前撤回申诉，已受理的撤回会恢复执行；
+- 补正、受理、复核期限均由注入时钟计算，逾期原因、审查人员回避、引用证据版本与最终送达均可通过接口查询（`GET /overdue`、`GET /appeals/{id}/recusals`、`GET /appeals/{id}/evidence-citations`、`GET /appeals/{id}/delivery`、`GET /dunning-queue`）。
+
+写接口通过 `X-Actor-Id` 识别操作者，角色覆盖执法人员（officer）、当事人（party）、代理人（agent）、承办人（handler）、复核人员（reviewer）和审计人员（auditor）。
